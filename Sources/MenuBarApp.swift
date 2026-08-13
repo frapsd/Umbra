@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        guard !anotherInstanceIsRunning() else { return }
 
         controller = BlackoutController()
         controller.onChange = { [weak self] in self?.updateStatusIcon() }
@@ -29,7 +30,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        controller.restoreNow()
+        controller?.restoreNow()
+    }
+
+    /// Two copies — typically one from `build/` and one from `/Applications` —
+    /// would put two identical items in the menu bar and, worse, keep separate
+    /// ideas of the saved gamma tables, so whichever restored second would write
+    /// back a snapshot taken while the screens were already black.
+    private func anotherInstanceIsRunning() -> Bool {
+        guard let identifier = Bundle.main.bundleIdentifier else { return false }
+        let others = NSRunningApplication
+            .runningApplications(withBundleIdentifier: identifier)
+            .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+        guard let existing = others.first else { return false }
+
+        existing.activate()
+        let alert = NSAlert()
+        alert.messageText = "Umbra is already running"
+        alert.informativeText = "Its icon is in the menu bar. This second copy will quit."
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+        NSApp.terminate(nil)
+        return true
     }
 
     // MARK: - Menu
@@ -154,10 +177,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Status icon
 
+    /// A slashed symbol rather than a filled-vs-outline pair: at 16pt a slash is
+    /// unmistakable, while fill weight is not. Crescents were the first choice
+    /// and had to go — macOS and several utilities already put a filled moon in
+    /// the menu bar, so the blacked-out state was ambiguous next to them.
     private func updateStatusIcon() {
         guard let button = statusItem.button else { return }
-        let symbol = controller.isBlacked ? "moon.fill" : "moon"
-        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Umbra") {
+        let symbol = controller.isBlacked ? "eye.slash" : "eye"
+        let description = controller.isBlacked ? "Umbra — screens blacked out" : "Umbra — screens visible"
+        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: description) {
             button.image = image
             button.title = ""
         } else {
