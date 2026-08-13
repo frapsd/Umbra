@@ -1,5 +1,9 @@
-// Generates Umbra.icns from code, so the icon is reviewable in diffs and
-// reproducible without binary design files.
+// Generates every image the project ships, from code, so they are reviewable in
+// diffs and reproducible without binary design files:
+//
+//   Umbra.icns          the app bundle icon
+//   icon.png            512px, for the README header
+//   social-preview.png  1280×640, for GitHub's social preview card
 //
 //   xcrun swift Tools/make-icon.swift Resources
 //
@@ -7,6 +11,7 @@
 // the crescent that gives the app its name. Chosen because a crescent survives
 // downscaling to 16pt, where most detailed marks turn to mush.
 
+import AppKit
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -144,6 +149,71 @@ struct Failure: Error, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
+/// 1280×640 card shown wherever the repository link is shared. GitHub crops to
+/// this ratio, so everything important stays well inside the margins.
+private func renderSocialPreview(to url: URL) throws {
+    let width = 1280, height = 640
+    guard let context = CGContext(
+        data: nil, width: width, height: height,
+        bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { throw Failure("could not create the social preview context") }
+
+    context.interpolationQuality = .high
+    let bounds = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+
+    if let backdrop = CGGradient(
+        colorsSpace: CGColorSpaceCreateDeviceRGB(),
+        colors: [color(0x1C2130), color(0x07080D)] as CFArray,
+        locations: [0, 1]
+    ) {
+        context.drawLinearGradient(
+            backdrop,
+            start: CGPoint(x: 0, y: bounds.maxY),
+            end: CGPoint(x: bounds.maxX, y: 0),
+            options: []
+        )
+    }
+
+    // The mark, drawn at its natural size then placed on the left third.
+    let markSize: CGFloat = 300
+    context.saveGState()
+    context.translateBy(x: 110, y: (CGFloat(height) - markSize) / 2)
+    drawIcon(in: context, size: markSize)
+    context.restoreGState()
+
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+
+    let title = NSAttributedString(string: "Umbra", attributes: [
+        .font: NSFont.systemFont(ofSize: 104, weight: .bold),
+        .foregroundColor: NSColor.white,
+    ])
+    title.draw(at: CGPoint(x: 470, y: 360))
+
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.lineSpacing = 8
+    let tagline = NSAttributedString(
+        string: "Black out a Mac's physical screens.\nThe remote session still sees the desktop.",
+        attributes: [
+            .font: NSFont.systemFont(ofSize: 36, weight: .regular),
+            .foregroundColor: NSColor(calibratedRed: 0.72, green: 0.78, blue: 0.95, alpha: 1),
+            .paragraphStyle: paragraph,
+        ]
+    )
+    tagline.draw(at: CGPoint(x: 474, y: 210))
+
+    NSGraphicsContext.restoreGraphicsState()
+
+    guard let image = context.makeImage() else { throw Failure("could not snapshot the social preview") }
+    guard let destination = CGImageDestinationCreateWithURL(
+        url as CFURL, UTType.png.identifier as CFString, 1, nil
+    ) else { throw Failure("could not open \(url.lastPathComponent) for writing") }
+    CGImageDestinationAddImage(destination, image, nil)
+    guard CGImageDestinationFinalize(destination) else { throw Failure("could not encode \(url.lastPathComponent)") }
+}
+
 let variants: [(name: String, pixels: Int)] = [
     ("icon_16x16", 16), ("icon_16x16@2x", 32),
     ("icon_32x32", 32), ("icon_32x32@2x", 64),
@@ -180,6 +250,13 @@ do {
     // The iconset is an intermediate; only the .icns is committed.
     try fileManager.removeItem(at: iconsetURL)
     print("wrote \(outputDirectory)/Umbra.icns")
+
+    // GitHub markdown cannot render .icns, so the README needs a PNG.
+    try renderPNG(pixels: 512, to: outputURL.appendingPathComponent("icon.png"))
+    print("wrote \(outputDirectory)/icon.png")
+
+    try renderSocialPreview(to: outputURL.appendingPathComponent("social-preview.png"))
+    print("wrote \(outputDirectory)/social-preview.png")
 } catch {
     FileHandle.standardError.write("make-icon: \(error)\n".data(using: .utf8)!)
     exit(1)

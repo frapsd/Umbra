@@ -1,11 +1,24 @@
+<div align="center">
+
+<img src="Resources/icon.png" alt="" width="120">
+
 # Umbra
 
 **Black out the physical screens of a Mac while a remote session keeps seeing the desktop.**
 
-You are working on your Mac from somewhere else — AnyDesk, Screen Sharing, VNC —
-and the monitors sitting in the room are showing everything you do to whoever
-walks past. Umbra turns those panels black with a keystroke, without touching
-what the remote session receives, and without putting the Mac to sleep.
+[![build](https://github.com/frapsd/Umbra/actions/workflows/build.yml/badge.svg)](https://github.com/frapsd/Umbra/actions/workflows/build.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B%20·%20Apple%20Silicon-lightgrey.svg)](#install)
+
+</div>
+
+You are working on your Mac from somewhere else — AnyDesk, TeamViewer, RustDesk,
+Screen Sharing, VNC — and the monitors sitting in the room are showing everything
+you do to whoever walks past. This is the everyday case for a headless-ish Mac
+mini in a home or office you are not currently in.
+
+Umbra turns those panels black with a keystroke, without touching what the remote
+session receives, and without putting the Mac to sleep.
 
 Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>B</kbd> to black out, press it
 again to restore.
@@ -29,9 +42,21 @@ Umbra zeroes each display's gamma transfer table. Those tables are applied at
 scanout, **after** the stage screen-capture APIs read from, so the panel goes
 black while the remote session keeps receiving the real desktop.
 
-If that sounds too convenient to be true, you have already seen it work: f.lux
-and Night Shift tint your screen through the same stage, and their tint never
-shows up in a screenshot.
+If that sounds too convenient to be true, it was measured rather than assumed.
+Capturing the screen normally, then again with the gamma tables zeroed, on a
+Mac mini M2 running macOS 26:
+
+```
+baseline capture   : mean brightness 41.8 / 255
+capture while black: mean brightness 41.8 / 255
+
+VERIFIED: capture is unaffected by gamma (100% of baseline).
+```
+
+Identical to the decimal. The second capture — taken while both physical panels
+were black — contains the ordinary desktop. You have also already seen the same
+mechanism at work: f.lux and Night Shift tint your screen through this stage, and
+their tint never shows up in a screenshot.
 
 This layer uses public CoreGraphics API only, needs no entitlement and no
 permission prompt, and works on any display — including monitors that ignore
@@ -134,6 +159,25 @@ There is no software fix. `0x10` is the only brightness lever monitors expose,
 and the one command that would genuinely kill the backlight is the `0xD6` that
 drops the link. If you need absolute black, use the monitor's own power button
 and accept the window reflow, or put a display emulator plug on the port.
+
+---
+
+## Alternatives, and when to prefer them
+
+Umbra is narrow on purpose. Several of these are better tools for their own job.
+
+| Instead of Umbra | Use it when | Why it does not solve this |
+|---|---|---|
+| [MonitorControl](https://github.com/MonitorControl/MonitorControl) | you want proper brightness and volume keys for external displays | it is a brightness manager, not a blackout toggle: no single-key blackout, and it does not touch gamma, so displays without DDC stay lit |
+| [Lunar](https://lunar.fyi) | you want adaptive brightness, presets, per-display curves | same reason, plus most of what you would need here is paid |
+| [BetterDisplay](https://github.com/waydabber/BetterDisplay) | you want resolution, scaling, virtual displays, HiDPI | its dimming overlay is drawn into the framebuffer, so a remote session sees the dimming too — the exact thing to avoid |
+| Locking the screen (`⌃⌘Q`) | you want actual security, not just privacy | the remote session gets the lock screen too; you cannot keep working |
+| Display sleep (`pmset displaysleepnow`) | nobody is using the machine | remote mouse or keyboard input wakes the displays straight back up |
+| The monitor's own power button | you want absolute black and do not mind doing it by hand | on most setups the link drops, so macOS reflows every window onto the remaining displays |
+
+The distinction that matters: a **software overlay** is composited into the
+framebuffer and therefore captured by remote desktop software. **Gamma** is not.
+That is the entire reason this project exists.
 
 ---
 
