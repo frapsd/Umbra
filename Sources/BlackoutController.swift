@@ -17,10 +17,13 @@ final class BlackoutController {
         /// Gamma only — never touches the monitors' own settings.
         case gammaOnly
 
+        /// Named for the trade-off the user is actually making, not for the
+        /// mechanism. "Gamma" is an implementation detail and does not belong in
+        /// a menu.
         var title: String {
             switch self {
-            case .full: return "Gamma + backlight to minimum"
-            case .gammaOnly: return "Gamma only"
+            case .full: return "Deepest (dims the backlight)"
+            case .gammaOnly: return "Screen only (monitors untouched)"
             }
         }
     }
@@ -32,6 +35,12 @@ final class BlackoutController {
     private let ddcQueue = DispatchQueue(label: "local.screenblackout.ddc", qos: .userInitiated)
 
     private(set) var isBlacked = false
+
+    /// Probing DDC takes a second or two per display. Until the first pass is
+    /// done, an empty display list means "not looked yet", not "none found" —
+    /// and saying the latter is a lie the user can catch by opening the menu
+    /// right after login.
+    private(set) var hasScannedDisplays = false
 
     var mode: Mode {
         didSet {
@@ -59,7 +68,10 @@ final class BlackoutController {
         ddcQueue.async { [ddc] in
             ddc.refresh()
             if ddc.hasPendingRestore { _ = ddc.restoreBrightness() }
-            DispatchQueue.main.async { self.onChange?() }
+            DispatchQueue.main.async {
+                self.hasScannedDisplays = true
+                self.onChange?()
+            }
         }
     }
 
@@ -122,9 +134,14 @@ final class BlackoutController {
     var displayCount: Int { GammaBlanker.activeDisplays().count }
 
     func rescanDisplays(completion: @escaping () -> Void) {
+        hasScannedDisplays = false
+        onChange?()
         ddcQueue.async { [ddc] in
             ddc.refresh()
-            DispatchQueue.main.async { completion() }
+            DispatchQueue.main.async {
+                self.hasScannedDisplays = true
+                completion()
+            }
         }
     }
 

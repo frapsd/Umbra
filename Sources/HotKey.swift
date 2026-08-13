@@ -1,3 +1,4 @@
+import AppKit
 import Carbon
 import Foundation
 
@@ -36,6 +37,25 @@ struct HotKeyCombination {
         if modifiers & UInt32(shiftKey) != 0 { result += "⇧" }
         if modifiers & UInt32(cmdKey) != 0 { result += "⌘" }
         return result + Self.name(for: keyCode)
+    }
+
+    /// Lets the menu render the shortcut natively, right-aligned, the way every
+    /// other Mac app does — rather than spelling it out in a greyed-out row.
+    /// Nil for keys with no single-character equivalent; the menu falls back to
+    /// a text hint for those.
+    var menuKeyEquivalent: String? {
+        let label = Self.name(for: keyCode)
+        guard label.count == 1 else { return nil }
+        return label.lowercased()
+    }
+
+    var menuModifierFlags: NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if modifiers & UInt32(controlKey) != 0 { flags.insert(.control) }
+        if modifiers & UInt32(optionKey) != 0 { flags.insert(.option) }
+        if modifiers & UInt32(shiftKey) != 0 { flags.insert(.shift) }
+        if modifiers & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        return flags
     }
 
     /// Carbon virtual key codes address physical keys, so this table holds for

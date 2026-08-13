@@ -59,42 +59,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Rebuilt on every open so the per-display status reflects reality rather
     /// than whatever was true at launch — displays get plugged in.
+    ///
+    /// The blackout row keeps a *fixed* title and carries its state in a check
+    /// mark, the way every system toggle does. A title that flips between
+    /// "Black Out" and "Restore" forces the reader to work out whether it is
+    /// describing the current state or the effect of clicking.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
         let toggle = NSMenuItem(
-            title: controller.isBlacked ? "Restore Screens" : "Black Out Screens",
+            title: "Black Out Screens",
             action: #selector(toggleBlackout),
-            keyEquivalent: ""
+            keyEquivalent: combination.menuKeyEquivalent ?? ""
         )
+        toggle.keyEquivalentModifierMask = combination.menuModifierFlags
         toggle.target = self
+        toggle.state = controller.isBlacked ? .on : .off
         menu.addItem(toggle)
-        menu.addItem(disabled(hotKey == nil ? "Shortcut unavailable" : "Shortcut: \(combination.display)"))
-
-        menu.addItem(.separator())
-        menu.addItem(disabled("Mode"))
-        for mode in [BlackoutController.Mode.full, .gammaOnly] {
-            let item = NSMenuItem(title: mode.title, action: #selector(selectMode(_:)), keyEquivalent: "")
-            item.target = self
-            item.state = controller.mode == mode ? .on : .off
-            item.representedObject = mode.rawValue
-            menu.addItem(item)
+        // Only spell the shortcut out when it could not be rendered natively.
+        if hotKey == nil {
+            menu.addItem(disabled("Shortcut \(combination.display) unavailable"))
+        } else if combination.menuKeyEquivalent == nil {
+            menu.addItem(disabled("Shortcut: \(combination.display)"))
         }
 
         menu.addItem(.separator())
-        menu.addItem(disabled("Displays: \(controller.displayCount)"))
-        if !controller.ddcAvailable {
-            menu.addItem(disabled("  DDC unavailable on this system"))
-        } else if controller.ddcDisplays.isEmpty {
-            menu.addItem(disabled("  No DDC displays found"))
-        } else {
-            for display in controller.ddcDisplays {
-                menu.addItem(disabled("  \(display.statusText)"))
-            }
-        }
-        let rescan = NSMenuItem(title: "Rescan Displays", action: #selector(rescan), keyEquivalent: "")
-        rescan.target = self
-        menu.addItem(rescan)
+        menu.addItem(submenu(titled: "Darkness", items: darknessItems()))
+        menu.addItem(submenu(titled: "Displays (\(controller.displayCount))", items: displayItems()))
 
         menu.addItem(.separator())
         let login = NSMenuItem(title: "Launch at Login", action: #selector(toggleLoginItem), keyEquivalent: "")
@@ -102,9 +93,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
 
+        menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Umbra", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
+    }
+
+    private func darknessItems() -> [NSMenuItem] {
+        [BlackoutController.Mode.full, .gammaOnly].map { mode in
+            let item = NSMenuItem(title: mode.title, action: #selector(selectMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.state = controller.mode == mode ? .on : .off
+            item.representedObject = mode.rawValue
+            return item
+        }
+    }
+
+    /// Diagnostics belong one level down: useful when a monitor misbehaves,
+    /// noise on every other opening of the menu.
+    private func displayItems() -> [NSMenuItem] {
+        var items: [NSMenuItem] = []
+        if !controller.ddcAvailable {
+            items.append(disabled("DDC unavailable on this system"))
+        } else if !controller.hasScannedDisplays {
+            items.append(disabled("Scanning displays…"))
+        } else if controller.ddcDisplays.isEmpty {
+            items.append(disabled("No DDC displays found"))
+        } else {
+            items += controller.ddcDisplays.map { disabled($0.statusText) }
+        }
+        items.append(.separator())
+        let rescan = NSMenuItem(title: "Rescan", action: #selector(rescan), keyEquivalent: "")
+        rescan.target = self
+        items.append(rescan)
+        return items
+    }
+
+    private func submenu(titled title: String, items: [NSMenuItem]) -> NSMenuItem {
+        let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let child = NSMenu(title: title)
+        items.forEach { child.addItem($0) }
+        parent.submenu = child
+        return parent
     }
 
     private func disabled(_ title: String) -> NSMenuItem {
