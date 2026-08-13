@@ -1,0 +1,7 @@
+build/
+*.iconset/
+.DS_Store
+
+# The original ChatGPT-generated prototype this project replaced; kept locally
+# for reference, not part of the repository.
+ScreenBlackout.zip

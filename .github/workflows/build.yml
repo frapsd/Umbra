@@ -1,0 +1,38 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Umbra.app
+        run: ./build.sh
+
+      - name: Check the bundle is well formed
+        run: |
+          test -x build/Umbra.app/Contents/MacOS/Umbra
+          test -f build/Umbra.app/Contents/Info.plist
+          test -f build/Umbra.app/Contents/Resources/Umbra.icns
+          codesign --verify --verbose build/Umbra.app
+
+      - name: Run --help
+        run: ./build/Umbra.app/Contents/MacOS/Umbra --help
+
+      # --selftest is deliberately not run here. It asserts against real display
+      # hardware, and a CI runner has none — a green tick from it would mean
+      # nothing. The self-test is for the machine the app will actually run on.
+
+      # Byte-comparing against the committed .icns would be flaky: iconutil does
+      # not promise identical output across macOS versions. Checking the
+      # generator still runs and yields a valid icon is the claim worth making.
+      - name: Check the icon generator still works
+        run: |
+          xcrun swift Tools/make-icon.swift /tmp/icon-check
+          file /tmp/icon-check/Umbra.icns | grep -q "Mac OS X icon"
