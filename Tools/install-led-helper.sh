@@ -10,13 +10,30 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Runs one command as root. Prefers sudo when a terminal exists to type into;
+# otherwise falls back to macOS's own authentication dialog, so the password is
+# handled by the system Security framework and never passes through this script.
+run_privileged() {
+  local command="$1"
+  if sudo -n true 2>/dev/null; then
+    sudo /bin/sh -c "$command"
+  elif [ -t 0 ]; then
+    sudo /bin/sh -c "$command"
+  else
+    local escaped
+    escaped=$(printf '%s' "$command" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    echo "No terminal available for a password prompt — using the macOS authentication dialog."
+    osascript -e "do shell script \"$escaped\" with administrator privileges" > /dev/null
+  fi
+}
+
 HELPER_DST="/usr/local/libexec/umbra-led"
 SUDOERS_DST="/etc/sudoers.d/umbra-led"
 USER_NAME="$(id -un)"
 
 if [ "${1:-}" = "--uninstall" ]; then
   echo "Removing the LED helper. You will be asked for your password."
-  sudo rm -f "$SUDOERS_DST" "$HELPER_DST"
+  run_privileged "/bin/rm -f $SUDOERS_DST $HELPER_DST"
   echo "Removed $SUDOERS_DST and $HELPER_DST"
   exit 0
 fi
@@ -45,10 +62,11 @@ if ! visudo -cf "$STAGE/sudoers" > /dev/null; then
 fi
 echo "sudoers rule validated."
 
+# One elevation for all three, so the password is asked for exactly once.
 echo "Installing. You will be asked for your password once."
-sudo install -d -o root -g wheel -m 0755 "$(dirname "$HELPER_DST")"
-sudo install -o root -g wheel -m 0755 "$STAGE/umbra-led" "$HELPER_DST"
-sudo install -o root -g wheel -m 0440 "$STAGE/sudoers" "$SUDOERS_DST"
+run_privileged "/usr/bin/install -d -o root -g wheel -m 0755 $(dirname "$HELPER_DST") \
+  && /usr/bin/install -o root -g wheel -m 0755 $STAGE/umbra-led $HELPER_DST \
+  && /usr/bin/install -o root -g wheel -m 0440 $STAGE/sudoers $SUDOERS_DST"
 
 echo "Verifying the grant works without a password..."
 if sudo -n "$HELPER_DST" status > /dev/null 2>&1; then
