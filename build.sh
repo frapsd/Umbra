@@ -28,6 +28,7 @@ xcrun swiftc \
   -framework ServiceManagement \
   Sources/GammaBlanker.swift \
   Sources/DDCService.swift \
+  Sources/LEDController.swift \
   Sources/HotKey.swift \
   Sources/BlackoutController.swift \
   Sources/MenuBarApp.swift \

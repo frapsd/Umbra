@@ -42,6 +42,18 @@ enum SelfTest {
             }
         }
 
+        section("Status LED")
+        let led = LEDController()
+        led.refreshAvailability()
+        if led.isAvailable {
+            pass("helper reachable at \(LEDController.helperPath) — LED currently \(led.state.rawValue)")
+        } else if FileManager.default.isExecutableFile(atPath: LEDController.helperPath) {
+            fail("helper installed but sudo refuses it — check /etc/sudoers.d/umbra-led")
+            failures += 1
+        } else {
+            warn("helper not installed — run Tools/install-led-helper.sh (LED layer disabled)")
+        }
+
         section("Gamma cycle (verified by reading the hardware back)")
         let gamma = GammaBlanker()
 

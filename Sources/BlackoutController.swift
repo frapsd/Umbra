@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-/// Orchestrates the two blackout layers and owns the on/off state.
+/// Orchestrates the three blackout layers and owns the on/off state.
 ///
 /// Layering matters in both directions: gamma goes to black first because it is
 /// instantaneous, and comes back last because a panel woken over DDC needs a
@@ -30,9 +30,11 @@ final class BlackoutController {
 
     private let gamma = GammaBlanker()
     private let ddc = DDCService()
+    private let led = LEDController()
 
     /// DDC round trips take hundreds of milliseconds; keep them off the main thread.
-    private let ddcQueue = DispatchQueue(label: "local.screenblackout.ddc", qos: .userInitiated)
+    private let ddcQueue = DispatchQueue(label: "io.github.frapsd.Umbra.ddc", qos: .userInitiated)
+    private let ledQueue = DispatchQueue(label: "io.github.frapsd.Umbra.led", qos: .userInitiated)
 
     private(set) var isBlacked = false
 
@@ -52,6 +54,22 @@ final class BlackoutController {
         }
     }
 
+    /// Whether the status LED follows the blackout. On by default: with no
+    /// helper installed the layer reports itself unavailable and quietly does
+    /// nothing, so the preference is safe to default on.
+    var ledEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(ledEnabled, forKey: "ledEnabled")
+            guard isBlacked else { return }
+            ledQueue.async { [led, ledEnabled] in
+                _ = ledEnabled ? led.turnOff() : led.turnOn()
+            }
+        }
+    }
+
+    var ledAvailable: Bool { led.isAvailable }
+    var ledState: LEDController.State { led.state }
+
     /// Called on the main thread whenever the state changes, so the menu can redraw.
     var onChange: (() -> Void)?
 
@@ -60,9 +78,16 @@ final class BlackoutController {
     init() {
         let stored = UserDefaults.standard.string(forKey: "mode")
         mode = stored.flatMap(Mode.init(rawValue:)) ?? .full
+        ledEnabled = UserDefaults.standard.object(forKey: "ledEnabled") as? Bool ?? true
 
         installTerminationHandlers()
         observeDisplayReconfiguration()
+        observeWake()
+
+        ledQueue.async { [led] in
+            led.refreshAvailability()
+            DispatchQueue.main.async { self.onChange?() }
+        }
 
         // Recover from a previous run that died with backlights at zero.
         ddcQueue.async { [ddc] in
@@ -95,11 +120,18 @@ final class BlackoutController {
         if mode == .full {
             ddcQueue.async { [ddc] in _ = ddc.dimAll() }
         }
+        if ledEnabled {
+            ledQueue.async { [led] in _ = led.turnOff() }
+        }
     }
 
     func restore() {
         guard isBlacked else { return }
         isBlacked = false
+
+        if ledEnabled {
+            ledQueue.async { [led] in _ = led.turnOn() }
+        }
 
         if mode == .full {
             // Brightness first: the backlight takes a moment to climb, and
@@ -124,7 +156,24 @@ final class BlackoutController {
         guard isBlacked else { return }
         isBlacked = false
         if mode == .full { _ = ddc.restoreBrightness() }
+        if ledEnabled, led.isAvailable {
+            _ = led.turnOn()
+            // Leave the machine as found: stop overriding, not merely set it back.
+            _ = led.handBackToFirmware()
+        }
         gamma.restore()
+    }
+
+    /// The SMC firmware reclaims the LED across sleep, so an override set before
+    /// the Mac slept is gone by the time it wakes. Reassert it if the screens are
+    /// still meant to be dark.
+    private func observeWake() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self, self.isBlacked, self.ledEnabled else { return }
+            self.ledQueue.async { [led = self.led] in _ = led.turnOff() }
+        }
     }
 
     // MARK: - Diagnostics for the menu

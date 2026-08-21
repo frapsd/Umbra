@@ -99,14 +99,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(quit)
     }
 
+    /// The mode rows are a radio group; the LED is an independent extra, so it
+    /// sits below a separator rather than reading as a third mode.
     private func darknessItems() -> [NSMenuItem] {
-        [BlackoutController.Mode.full, .gammaOnly].map { mode in
+        var items: [NSMenuItem] = [BlackoutController.Mode.full, .gammaOnly].map { mode in
             let item = NSMenuItem(title: mode.title, action: #selector(selectMode(_:)), keyEquivalent: "")
             item.target = self
             item.state = controller.mode == mode ? .on : .off
             item.representedObject = mode.rawValue
             return item
         }
+
+        items.append(.separator())
+        if controller.ledAvailable {
+            let led = NSMenuItem(
+                title: "Also turn off the status LED",
+                action: #selector(toggleLED),
+                keyEquivalent: ""
+            )
+            led.target = self
+            led.state = controller.ledEnabled ? .on : .off
+            items.append(led)
+        } else {
+            items.append(disabled("Status LED: helper not installed"))
+            items.append(disabled("  run Tools/install-led-helper.sh"))
+        }
+        return items
+    }
+
+    @objc private func toggleLED() {
+        controller.ledEnabled.toggle()
     }
 
     /// Diagnostics belong one level down: useful when a monitor misbehaves,
