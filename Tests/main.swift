@@ -40,5 +40,33 @@ check(
     "a pending level for another display is kept"
 )
 
+// The model comes from the DDC capabilities string, which a busy display can
+// fail to return; the key then reads "0|" instead of "0|PA278CV". An unknown
+// model contradicts nothing, so the display index alone has to match.
+check(
+    BrightnessLedger.pendingKey(for: "0|", in: ["0|PA278CV": 50]) == "0|PA278CV",
+    "a display whose model went unread finds its level by index"
+)
+check(
+    BrightnessLedger.pendingKey(for: "0|PA278CV", in: ["0|": 50]) == "0|",
+    "a level saved without a model is found once the model reads"
+)
+check(
+    BrightnessLedger.pendingKey(for: "0|U2720Q", in: ["0|PA278CV": 50]) == nil,
+    "a different model on the same index is not the same display"
+)
+check(
+    BrightnessLedger.pendingKey(for: "1|", in: ["0|PA278CV": 50]) == nil,
+    "a different index is not the same display"
+)
+check(
+    BrightnessLedger.pendingKey(for: "0|", in: ["0|": 40, "0|PA278CV": 50]) == "0|",
+    "an exact key wins over a loose match"
+)
+check(
+    BrightnessLedger.recording(["0|": 0], over: ["0|PA278CV": 50]) == ["0|PA278CV": 50],
+    "dimming with the model unread keeps the pending level, without a stray 0"
+)
+
 print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
 exit(failures == 0 ? 0 : 1)

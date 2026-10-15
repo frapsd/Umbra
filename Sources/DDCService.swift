@@ -182,13 +182,15 @@ final class DDCService {
 
         var confirmed: Set<String> = []
         for display in controllable {
-            guard let level = levels[display.persistenceKey] else { continue }
+            guard let key = BrightnessLedger.pendingKey(for: display.persistenceKey, in: levels),
+                  let level = levels[key]
+            else { continue }
             let target = UInt16(clamping: level)
             writeVCP(display.service, DDC.vcpLuminance, target)
             // A Set command has no acknowledgement, so ask the display what it
             // ended up with rather than trusting the write.
             if readVCP(display.service, DDC.vcpLuminance)?.current == target {
-                confirmed.insert(display.persistenceKey)
+                confirmed.insert(key)
             }
         }
 
