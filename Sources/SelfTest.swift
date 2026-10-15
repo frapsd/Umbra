@@ -120,7 +120,7 @@ enum SelfTest {
                 }
 
                 let restored = ddc.restoreBrightness()
-                note("restore sent to \(restored) displays")
+                note("restore confirmed by \(restored) displays")
                 Thread.sleep(forTimeInterval: 2)
 
                 for (label, level) in ddc.brightnessLevels() {

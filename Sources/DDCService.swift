@@ -155,40 +155,60 @@ final class DDCService {
     /// Returns the number of displays dimmed.
     @discardableResult
     func dimAll() -> Int {
-        var levels: [String: Int] = [:]
+        var current: [String: Int] = [:]
         var dimmed = 0
 
         for display in controllable {
             // Re-read rather than trust the probe: the user may have adjusted the
             // monitor's own buttons since discovery.
-            let current = readVCP(display.service, DDC.vcpLuminance)?.current ?? display.luminance ?? display.maxLuminance
-            levels[display.persistenceKey] = Int(current)
+            let level = readVCP(display.service, DDC.vcpLuminance)?.current ?? display.luminance ?? display.maxLuminance
+            current[display.persistenceKey] = Int(level)
+        }
+        // Persist before the first write, so a crash mid-loop is still undoable.
+        savePending(BrightnessLedger.recording(current, over: pendingLevels))
+
+        for display in controllable {
             if writeVCP(display.service, DDC.vcpLuminance, 0) { dimmed += 1 }
         }
-
-        UserDefaults.standard.set(levels, forKey: Self.restoreKey)
         return dimmed
     }
 
-    /// Puts the recorded brightness back. Returns the number of displays restored.
+    /// Puts the recorded brightness back. Returns the number of displays that
+    /// confirmed the level; the rest stay pending for the next attempt.
     @discardableResult
     func restoreBrightness() -> Int {
-        let levels = UserDefaults.standard.dictionary(forKey: Self.restoreKey) as? [String: Int] ?? [:]
+        let levels = pendingLevels
         guard !levels.isEmpty else { return 0 }
 
-        var restored = 0
+        var confirmed: Set<String> = []
         for display in controllable {
             guard let level = levels[display.persistenceKey] else { continue }
-            if writeVCP(display.service, DDC.vcpLuminance, UInt16(clamping: level)) { restored += 1 }
+            let target = UInt16(clamping: level)
+            writeVCP(display.service, DDC.vcpLuminance, target)
+            // A Set command has no acknowledgement, so ask the display what it
+            // ended up with rather than trusting the write.
+            if readVCP(display.service, DDC.vcpLuminance)?.current == target {
+                confirmed.insert(display.persistenceKey)
+            }
         }
 
-        UserDefaults.standard.removeObject(forKey: Self.restoreKey)
-        return restored
+        savePending(BrightnessLedger.remaining(levels, confirmed: confirmed))
+        return confirmed.count
     }
 
     /// True when a previous run ended without restoring brightness.
-    var hasPendingRestore: Bool {
-        !((UserDefaults.standard.dictionary(forKey: Self.restoreKey) as? [String: Int]) ?? [:]).isEmpty
+    var hasPendingRestore: Bool { !pendingLevels.isEmpty }
+
+    private var pendingLevels: [String: Int] {
+        UserDefaults.standard.dictionary(forKey: Self.restoreKey) as? [String: Int] ?? [:]
+    }
+
+    private func savePending(_ levels: [String: Int]) {
+        if levels.isEmpty {
+            UserDefaults.standard.removeObject(forKey: Self.restoreKey)
+        } else {
+            UserDefaults.standard.set(levels, forKey: Self.restoreKey)
+        }
     }
 
     /// Current brightness per display, for the self-test.

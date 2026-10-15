@@ -27,6 +27,7 @@ xcrun swiftc \
   -framework IOKit \
   -framework ServiceManagement \
   Sources/GammaBlanker.swift \
+  Sources/BrightnessLedger.swift \
   Sources/DDCService.swift \
   Sources/LEDController.swift \
   Sources/HotKey.swift \
